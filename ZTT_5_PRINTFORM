@@ -1,0 +1,97 @@
+*&---------------------------------------------------------------------*
+*& Report ZTT_5_PRINTFORM
+*&---------------------------------------------------------------------*
+*& Author: Natalia Kunaeva
+*& Date: 11.08.2021
+*& Description: Test print form with VBAK table where ERDAT >= 01.01.2020
+*&              print form - Z_BC460_EX3_XX4 (Letter)
+*& Change history
+*& Author:
+*& Date: 16.08.2021
+*&---------------------------------------------------------------------*
+REPORT ZTT_5_PRINTFORM.
+
+TABLES: vbak.
+
+DATA: gt_vbak TYPE STANDARD TABLE OF vbak.
+
+SELECT * FROM vbak INTO TABLE gt_vbak WHERE erdat >= '20200101'.
+  SORT gt_vbak BY erdat.
+
+CALL FUNCTION 'OPEN_FORM'
+     EXPORTING
+          application        = 'TX'
+          form               = 'Z_BC460_EX3_XX4'
+          device             = 'PRINTER'
+          dialog             = 'X'
+     EXCEPTIONS
+          canceled           = 1
+          device             = 2
+          form               = 3
+          options            = 4
+          unclosed           = 5
+          OTHERS             = 6.
+IF sy-subrc <> 0.
+  WRITE 'Error in OPEN_FORM'.
+ENDIF.
+
+
+  CALL FUNCTION 'START_FORM'
+       EXPORTING
+            form   = 'Z_BC460_EX3_XX4'
+       EXCEPTIONS
+            OTHERS = 1.
+  IF sy-subrc NE 0.
+    WRITE 'Error in START_FORM'.
+    EXIT.
+  ENDIF.
+
+* Output introduction text
+  CALL FUNCTION 'WRITE_FORM'
+       EXPORTING
+            element = 'INTRODUCTION'
+       EXCEPTIONS
+            OTHERS  = 1.
+  IF sy-subrc NE 0.
+    WRITE 'Error in WRITE_FORM, element INTRODUCTION'.
+    EXIT.
+  ENDIF.
+
+
+* Output column headings of main window
+  CALL FUNCTION 'WRITE_FORM'
+       EXPORTING
+            element = 'ITEM_HEADER'
+       EXCEPTIONS
+            OTHERS  = 1.
+  IF sy-subrc NE 0.
+    WRITE 'Error in WRITE_FORM, element ITEM_HEADER'.
+    EXIT.
+  ENDIF.
+
+
+  LOOP AT gt_vbak INTO DATA(gs_vbak).
+    vbak = gs_vbak.
+
+    CALL FUNCTION 'WRITE_FORM'
+         EXPORTING
+              element = 'ITEM_LINE'
+         EXCEPTIONS
+              OTHERS  = 1.
+    IF sy-subrc NE 0.
+      WRITE 'Error in WRITE_FORM, element ITEM_LINE'.
+      EXIT.
+    ENDIF.
+  ENDLOOP.
+
+
+* close print job
+CALL FUNCTION 'CLOSE_FORM'
+*     IMPORTING
+*          result = result
+     EXCEPTIONS
+          OTHERS = 1.
+IF sy-subrc NE 0.
+  WRITE 'Error in CLOSE_FORM'.
+  EXIT.
+ENDIF.
