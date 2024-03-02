@@ -1,0 +1,214 @@
+*&---------------------------------------------------------------------*
+*& Report ZTEST_TRAINEE_2
+*&---------------------------------------------------------------------*
+*& Author: Natalia Kunaeva
+*& Date: 01.07.2021
+*& Description: Test programm with Classes, Message-classes & my two Z-tables.
+*&
+*& Change history
+*& Author:
+*& Date:
+*&---------------------------------------------------------------------*
+REPORT ZTEST_TRAINEE_2.
+
+SELECTION-SCREEN BEGIN OF BLOCK part1 WITH FRAME TITLE title.
+PARAMETERS: p_them RADIOBUTTON GROUP rad DEFAULT 'X',  " themes ABAP course from ZTEST_TRAINEE table
+            p_agend RADIOBUTTON GROUP rad,             " agendas of Town Hall from ZTEST_TRAINEE_3
+            p_wthr RADIOBUTTON GROUP rad.              " description weather from ZTEST_TRAINEE_2
+SELECTION-SCREEN END OF BLOCK part1.
+
+DATA go_zcl_test_1 TYPE REF TO zcl_test1.
+DATA gs_theme TYPE ztest_trainee.
+
+INITIALIZATION.
+  title = 'Please, choose what do you want to display:'(001).
+
+START-OF-SELECTION.
+
+  CREATE OBJECT go_zcl_test_1.
+
+  CHECK sy-subrc = 0.
+
+  CASE  'X'.
+    WHEN p_them.
+*      "select ONE theme ABAP course from ZTEST_TRAINEE table
+*      go_zcl_test_1->zif_test_1~get_theme( ).
+      "select themes and display
+      go_zcl_test_1->zif_test_1~display_theme( ).
+    WHEN p_agend.
+      "select and display agendas of Town Hall from ZTEST_TRAINEE_3
+      go_zcl_test_1->zif_test_1~display_agenda( ).
+    WHEN p_wthr.
+      "select and display description of weather from ZTEST_TRAINEE_2
+      go_zcl_test_1->zif_test_1~display_weather( ).
+    WHEN OTHERS.
+       MESSAGE i002(ztest_trainee_msg_1).
+  ENDCASE.
+
+
+*--------------------------------------------------------------------------------*
+CLASS zcl_test1 DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
+PUBLIC SECTION.
+
+  INTERFACES zif_test_1
+      ALL METHODS FINAL .
+PROTECTED SECTION.
+PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS ZCL_TEST1 IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~DISPLAY_AGENDA
+* +-------------------------------------------------------------------------------------------------+
+* | [<-->] CT_AGENDA                      TYPE        TYT_AGENDA(optional)
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~display_agenda.
+*&--------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Method description: display agendas of Town Halls from ZTEST_TRAINEE_3
+*&--------------------------------------------------------------------------*
+
+  "select agendas
+  zif_test_1~get_agenda(
+    IMPORTING
+      et_agenda = ct_agenda
+    ).
+
+  LOOP AT ct_agenda INTO DATA(ls_agenda).
+    WRITE: / ls_agenda-mandt, ls_agenda-town_hall, ls_agenda-description_th,
+             ls_agenda-data_th, ls_agenda-status, ls_agenda-num_participants.
+  ENDLOOP.
+
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~DISPLAY_THEME
+* +-------------------------------------------------------------------------------------------------+
+* | [<-->] CT_THEME                       TYPE        TYT_THEME(optional)
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~display_theme.
+*&--------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Method description: display themes ABAP course from ZTEST_TRAINEE
+*&--------------------------------------------------------------------------*
+
+  zif_test_1~get_theme(
+    IMPORTING
+      et_theme = ct_theme     " what is wrong with et_theme ??
+    ).
+
+  LOOP AT ct_theme INTO DATA(ls_theme).
+    WRITE: / ls_theme-mandt, ls_theme-theme,ls_theme-description,
+             ls_theme-ldate,ls_theme-status.
+  ENDLOOP.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~DISPLAY_WEATHER
+* +-------------------------------------------------------------------------------------------------+
+* | [<-->] CT_WTHR                        TYPE        TYT_WEATHER(optional)
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~display_weather.
+*&--------------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Method description: get and display selected description about weather from ZTEST_TRAINEE_2
+*&--------------------------------------------------------------------------------*
+
+  zif_test_1~get_weather(
+    IMPORTING
+      et_wthr = ct_wthr
+  ).
+  LOOP AT ct_wthr INTO DATA(ls_wthr).
+    WRITE: / ls_wthr-MANDT, ls_wthr-WEATHER, ls_wthr-DESCRIPTION, ls_wthr-MDATA, ls_wthr-STATUS.
+  ENDLOOP.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~GET_AGENDA
+* +-------------------------------------------------------------------------------------------------+
+* | [<---] ET_AGENDA                      TYPE        TYT_AGENDA
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~get_agenda.
+*&--------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Method description: get selected agenda of Town Hall from ZTEST_TRAINEE_3
+*&--------------------------------------------------------------------------*
+
+   "select agendas from ZTEST_TRAINEE_3 table
+   SELECT mandt, town_hall, description_th, data_th, status, num_participants
+     FROM ztest_trainee_3 INTO CORRESPONDING FIELDS OF TABLE @et_agenda.
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~GET_THEME
+* +-------------------------------------------------------------------------------------------------+
+* | [<---] ET_THEME                       TYPE        TYT_THEME
+* | [EXC!] ZTEST_TRAINEE_MSG_1
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~get_theme.
+*&--------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 02.07.2021
+*& Method description: get selected theme ABAP course from ZTEST_TRAINEE
+*&--------------------------------------------------------------------------*
+
+
+    DATA lv_theme TYPE ztt_theme.
+
+    "select themes ABAP course from ZTEST_TRAINEE table
+    SELECT mandt, theme, description, ldate, status
+      FROM ztest_trainee INTO CORRESPONDING FIELDS OF TABLE @et_theme.
+
+      lv_theme = et_theme[ 3 ]-theme.
+
+      IF sy-subrc <> 0.
+        MESSAGE i003(ztest_trainee_msg_1) WITH lv_theme.
+      ENDIF.
+
+
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_TEST1->ZIF_TEST_1~GET_WEATHER
+* +-------------------------------------------------------------------------------------------------+
+* | [<---] ET_WTHR                        TYPE        TYT_WEATHER
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD zif_test_1~get_weather.
+*&--------------------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Method description: select description about weather from ZTEST_TRAINEE_2
+*& Method description: get selected description about weather from ZTEST_TRAINEE_2
+*&--------------------------------------------------------------------------------*
+
+  "select description abour weather from ZTEST_TRAINEE_2
+  SELECT mandt,
+         weather,
+         description,
+         mdata,
+         status
+    FROM ztest_trainee_2 INTO CORRESPONDING FIELDS OF TABLE @et_wthr.
+
+ENDMETHOD.
+ENDCLASS.
