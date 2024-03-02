@@ -1,0 +1,136 @@
+*&---------------------------------------------------------------------*
+*& Report ZTEST_TRAINEE_1
+*&---------------------------------------------------------------------*
+*& Author: Natalia Kunaeva
+*& Date: 29.06.2021
+*& Description: Test programm with Functional Module & my two Z-tables.
+*&              From package - ZTEST_TRAINEE_2
+*& Change history
+*& Author:
+*& Date:
+*&---------------------------------------------------------------------*
+REPORT ztest_trainee_1.
+
+SELECTION-SCREEN BEGIN OF BLOCK part1 WITH FRAME.
+PARAMETERS: p_them RADIOBUTTON GROUP rad DEFAULT 'X',   " select & print themes for ABAP trainee from ZTEST_TRAINEE table
+            p_agend RADIOBUTTON GROUP rad.              " select & print Town Hall's themes from ZTEST_TRAINEE_3 table
+SELECTION-SCREEN END OF BLOCK part1.
+
+PARAMETERS: p_theme  TYPE ztest_trainee-theme,
+            p_agenda TYPE ztest_trainee_3-town_hall.
+
+INCLUDE ztest_trainee_1_data.
+
+DATA:  gt_theme  TYPE gty_theme,
+       gt_agenda TYPE gty_agenda.
+
+INCLUDE ztest_trainee_1_forms.
+
+INITIALIZATION.
+
+START-OF-SELECTION.
+
+  IF p_them = 'X'.
+
+    PERFORM select_theme USING p_theme.
+  ELSEIF p_agend = 'X'.
+    PERFORM select_agenda CHANGING gt_agenda.
+
+  ENDIF.
+
+*----------------------------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&  Include           ZTEST_TRAINEE_1_DATA
+*&---------------------------------------------------------------------*
+TYPES: BEGIN OF gtt_theme,
+         mandt       TYPE mandt,
+         theme       TYPE ztt_theme,
+         description TYPE ztt_descr,
+         ldate       TYPE dats,
+         status      TYPE ztt_status,
+       END OF gtt_theme.
+
+TYPES: BEGIN OF gtt_agenda,
+         mandt            TYPE mandt,
+         town_hall        TYPE z_town_hall,
+         description_th   TYPE z_desrip,
+         data_th          TYPE dats,
+         status           TYPE z_status,
+         num_participants TYPE z_num,
+       END OF gtt_agenda.
+
+TYPES: gty_theme  TYPE TABLE OF gtt_theme,
+       gty_agenda TYPE TABLE OF gtt_agenda.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZTEST_TRAINEE_1_FORMS
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  SELECT_THEME
+*&---------------------------------------------------------------------*
+FORM select_theme USING iv_theme TYPE ztt_theme.
+
+  DATA: lv_theme TYPE ztt_theme,
+        ls_theme TYPE gtt_theme,
+        lt_theme TYPE gty_theme.
+
+  lv_theme = iv_theme.
+
+  "select theme for ABAP trainee form selection screeen
+  IF lv_theme IS NOT INITIAL.
+    SELECT mandt,theme,description,ldate,status
+      FROM ztest_trainee INTO CORRESPONDING FIELDS OF TABLE @lt_theme
+        WHERE theme = @lv_theme.
+
+      IF sy-subrc <> 0.
+         MESSAGE 'There is not such theme for ABAP Trainee!'(001) TYPE 'S' DISPLAY LIKE 'E'.
+      ENDIF.
+
+    ELSE.
+  " select all themes from ZTEST_TRAINEE table
+    SELECT mandt, theme, description, ldate, status
+      FROM ztest_trainee INTO CORRESPONDING FIELDS OF TABLE @lt_theme.
+  ENDIF.
+
+  IF lt_theme IS NOT INITIAL.
+    LOOP AT lt_theme INTO ls_theme.
+      WRITE: / ls_theme-mandt, ls_theme-theme,ls_theme-description,
+      ls_theme-ldate,ls_theme-status.
+    ENDLOOP.
+  ELSE.
+    MESSAGE 'There are no themes for ABAP Trainee from ZTEST_TRAINEE table according the selection criteria!'(002) TYPE 'S' DISPLAY LIKE 'E'.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  SELECT_AGENDA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      <--P_GT_AGENDA  text
+*----------------------------------------------------------------------*
+FORM select_agenda CHANGING gty_agenda.
+
+  DATA: lt_agenda TYPE gty_agenda,
+        ls_agenda TYPE gtt_agenda.
+
+  CALL FUNCTION 'ZTEST_TRAINEE_1_SELECT'
+    EXPORTING
+      iv_agenda = p_agenda
+    CHANGING
+      ct_agenda = gt_agenda.
+
+  IF gt_agenda IS NOT INITIAL.
+    LOOP AT gt_agenda INTO ls_agenda.
+      WRITE: / ls_agenda-mandt, ls_agenda-town_hall, ls_agenda-description_th, ls_agenda-data_th,
+               ls_agenda-status, ls_agenda-num_participants.
+    ENDLOOP.
+  ELSE.
+    MESSAGE 'There are no agendas in ZTEST_TRAINEE_3 table according the selection criteria!'(003) TYPE 'S' DISPLAY LIKE 'E'.
+    "select all agendas from ZTEST_TRAINEE_3 table
+    SELECT mandt, town_hall, description_th, data_th, status, num_participants
+      FROM ztest_trainee_3 INTO CORRESPONDING FIELDS OF TABLE @lt_agenda.
+  ENDIF.
+
+ENDFORM.
