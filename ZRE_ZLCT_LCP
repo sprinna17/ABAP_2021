@@ -1,0 +1,30 @@
+*&---------------------------------------------------------------------*
+*& Report  ZRE_ZLCT_LCP
+*&---------------------------------------------------------------------*
+*& Author     : Nataliia Kunaeva
+*& Date       : 25.10.2022
+*& Description: Generate a link and open it through a browser
+*&              Ticket IM0******* LCT für PT1
+*&
+*& Change history
+*& Author     :
+*& Date       :
+*& Description:
+*&---------------------------------------------------------------------*
+
+REPORT zre_zlct_lct.
+
+INCLUDE zre_zlct_lcp_top.             " Types & Data
+INCLUDE zre_zlct_lcp_sel.             " Selection screen
+INCLUDE zre_zlct_lcp_clc.             " Class with 3 methods: select, URL, open browser
+
+INITIALIZATION.
+
+START-OF-SELECTION.
+
+  CREATE OBJECT go_lcl_lct.
+
+  CALL METHOD go_lcl_lct->select_data( ). "Select URL from table,
+  CALL METHOD go_lcl_lct->url_forming( ). "Generate whole URL & open in browser
+
+END-OF-SELECTION.
