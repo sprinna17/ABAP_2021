@@ -1,0 +1,160 @@
+*&---------------------------------------------------------------------*
+*& Report ZTEST_TRAINEE_3
+*&---------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Description: Test programm for ALV Grid display of Z-table
+*&
+*& Change history
+*& Author:
+*& Date:
+*&---------------------------------------------------------------------*
+REPORT ztest_trainee_3.
+
+TABLES: ztest_trainee_3.
+
+
+TYPE-POOLS: slis.
+
+INCLUDE ztest_trainee_3_alv_z_data.
+INCLUDE ztest_trainee_3_alv_z_select.
+INCLUDE ztest_trainee_3_alv_z_display.
+
+  INITIALIZATION.
+
+    CLEAR gv_exit.
+
+  START-OF-SELECTION.
+
+    PERFORM select_data.      "select data from ZTEST_TRAINEE_3 table
+    PERFORM build_fieldctlg.  " build field catalog
+    PERFORM display_alv.      " display data
+
+*------------------------------------------------------------------------------------
+*&---------------------------------------------------------------------*
+*&  Include           ZTEST_TRAINEE_3_ALV_Z_DATA
+*&---------------------------------------------------------------------*
+
+  DATA  gt_ztheme TYPE TABLE OF ztest_trainee_3.
+
+  DATA: gt_fieldcat TYPE slis_t_fieldcat_alv,
+        gs_layout   TYPE slis_layout_alv,
+        gv_repid    TYPE sy-repid,
+        gv_save     TYPE c VALUE 'X',
+        gv_exit     TYPE c.
+
+*&---------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 05.07.2021
+*& Form description: select data from ZTEST_TRAINEE table
+*&---------------------------------------------------------------------*
+*&  Include           ZTEST_TRAINEE_3_ALV_Z_SELECT
+*&---------------------------------------------------------------------*
+FORM  select_data.
+
+  SELECT * FROM ztest_trainee_3
+     INTO TABLE gt_ztheme.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZTEST_TRAINEE_3_ALV_Z_DISPLAY
+*&---------------------------------------------------------------------*
+
+FORM build_fieldctlg .
+
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'  " the 2nd way to build field catalog
+    EXPORTING
+      i_program_name     = sy-repid
+      i_internal_tabname = 'GT_ZTHEME'
+      i_structure_name   = 'ZTEST_TRAINEE_3'
+    CHANGING
+      ct_fieldcat        = gt_fieldcat
+    EXCEPTIONS
+      inconsistent_interface = 1
+      program_error          = 2
+      OTHERS                 = 3.
+
+  IF gt_fieldcat[] IS INITIAL.
+    gv_exit = 'X'.
+  ENDIF.
+
+ENDFORM.                    "build_fieldctlg
+
+*&---------------------------------------------------------------------*
+*& Form description: displaying the top of the table
+*&---------------------------------------------------------------------*
+FORM top_of_page.
+
+  DATA: lt_header TYPE slis_t_listheader,
+        ls_header TYPE slis_listheader,
+        lt_line LIKE ls_header-info,
+        lv_lines TYPE string,
+        lv_linesc(10) TYPE c.
+
+" Title
+  ls_header-typ  = 'H'.
+  ls_header-info = 'AGENDAS of Town Hall'.   "'THEMES ABAP course'.
+  APPEND ls_header TO lt_header.
+  CLEAR ls_header.
+
+" Date
+  ls_header-typ  = 'S'.
+  ls_header-key = 'Date: '.
+  CONCATENATE  sy-datum+6(2) '.' sy-datum+4(2) '.' sy-datum(4) INTO ls_header-info.
+  APPEND ls_header TO lt_header.
+  CLEAR ls_header.
+
+" User
+  ls_header-typ = 'S'.
+  ls_header-key = 'Current user is: '.
+  CONCATENATE  sy-uname ' ' INTO ls_header-info.
+  APPEND ls_header TO lt_header.
+  CLEAR ls_header.
+
+" Number of rows
+  DESCRIBE TABLE gt_ztheme LINES lv_lines.       " the 2nd way to count lines
+  ls_header-typ = 'S'.
+  ls_header-key = 'Number of rows: '.
+  CONCATENATE  lv_lines ' ' INTO ls_header-info.
+  APPEND ls_header TO lt_header.
+  CLEAR ls_header.
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_header.
+
+ENDFORM.                    "top_of_page
+
+*&---------------------------------------------------------------------*
+*& Form description: display report on the screen
+*&---------------------------------------------------------------------*
+FORM display_alv.
+
+  IF gv_exit IS INITIAL.
+    IF gt_ztheme IS INITIAL.
+      MESSAGE 'ERROR. There is not data to display'(001) TYPE 'S' DISPLAY LIKE 'E'.
+    ELSE.
+      CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+        EXPORTING
+          i_callback_program      = sy-repid
+          i_callback_top_of_page  = 'TOP_OF_PAGE'
+          i_callback_user_command = 'USER_COMMAND'
+          it_fieldcat             = gt_fieldcat[]
+          i_save                  = 'X'
+          "is_variant              = gs_variant
+        TABLES
+          t_outtab                = gt_ztheme
+        EXCEPTIONS
+          program_error           = 1
+          OTHERS                  = 2.
+      IF sy-subrc <> 0.
+*     MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*             WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+      ENDIF.
+    ENDIF.
+  ELSE.
+    MESSAGE 'ERROR. Field catalog is empty'(001) TYPE 'S' DISPLAY LIKE 'E'.
+  ENDIF.
+
+ENDFORM.                    "DISPLAY_ALV
