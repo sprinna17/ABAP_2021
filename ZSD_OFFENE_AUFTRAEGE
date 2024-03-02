@@ -1,0 +1,949 @@
+*&---------------------------------------------------------------------*
+*& Report ZSD_OFFENE_AUFTRAEGE
+*&---------------------------------------------------------------------*
+*& Author     : Nataliia Kunaeva
+*& Date       : 27.10.2021
+*& Description: Select Partner-Role with Formation of Excel and send it by E-Mail
+*&              Ticket IM0035175085 --> SAP-293
+*&
+*& Change history
+*& Author     : Nataliia Kunaeva
+*& Date       : 18.01.2022
+*& Description: Adding new colomn - TVLST-VTEXT
+*&---------------------------------------------------------------------*
+*& Lookup     : [1]
+*& Request    : IM0036616255   Betreff on Sel.Scr.
+*& Author     : Iurii Samokhin
+*& Date       : 04.03.2022
+*& Description: Betreff für e-Mail auf Selektionsbildschirm befüllen
+*&---------------------------------------------------------------------*
+*& Lookup     : [2]
+*& Request    : IM0036720517   PartnerNr aus dem Report ausschließen
+*& Author     : Iurii Samokhin
+*& Date       : 18.03.2022
+*& Description: PartnerNr aus dem Report ausschließen
+*&---------------------------------------------------------------------*
+REPORT zsd_offene_auftraege.
+
+INCLUDE zsd_offene_auftraege_top.             " Types & Data
+INCLUDE zsd_offene_auftraege_sel.             " Selection screen
+INCLUDE zsd_offene_auftraege_clc.             " Class with 4 methods: select, ALV, send E-Mail, Excel-file
+
+*---------------------
+START-OF-SELECTION.
+
+  CREATE OBJECT go_lcl_zsd.
+
+  CALL METHOD go_lcl_zsd->select_data( ).     "Select Partner-Role ZX, field GBSTA = 'C' is hided
+
+  IF p_email IS NOT INITIAL.
+    CALL METHOD go_lcl_zsd->send_mail( ).
+    MESSAGE i002(zsd_offene).                 "The E-Mail will be sent
+  ENDIF.
+  IF gt_result IS NOT INITIAL.
+    CALL METHOD go_lcl_zsd->show_alv( ).
+  ENDIF.
+
+END-OF-SELECTION.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZSD_OFFENE_AUFTRAEGE_TOP
+*&---------------------------------------------------------------------*
+
+CLASS lcl_zsd DEFINITION DEFERRED.
+
+TABLES: vbak, vbap, vbup, vbpa, adrc, somlreci1, solisti1, kna1.
+
+TYPES: BEGIN OF ty_vbak,
+         vbeln  TYPE vbak-vbeln,
+         erdat  TYPE vbak-erdat,
+         erzet  TYPE vbak-erzet,
+         ernam  TYPE vbak-ernam,
+         vkorg  TYPE vbak-vkorg,
+         vtweg  TYPE vbak-vtweg,
+         bstnk  TYPE vbak-bstnk,
+         kunnr  TYPE vbak-kunnr,
+         posnr  TYPE vbap-posnr,
+         matnr  TYPE vbap-matnr,
+         arktx  TYPE vbap-arktx,
+         pstyv  TYPE vbap-pstyv,
+         abgru  TYPE vbap-abgru,
+         netwr  TYPE vbap-netwr,
+         waerk  TYPE vbap-waerk,
+         kwmeng TYPE vbap-kwmeng,
+         zmeng  TYPE vbap-zmeng, " field for empty kwmeng
+         vrkme  TYPE vbap-vrkme,
+         gbsta  TYPE vbup-gbsta,
+         name1  TYPE adrc-name1,
+         lifsk  TYPE vbak-lifsk, " field-key for tvlst-vtext
+         vtext  TYPE tvlst-vtext,
+       END OF ty_vbak.
+
+
+TYPES: BEGIN OF ty_vbak_2,
+         vbeln  TYPE vbak-vbeln,
+         erdat  TYPE vbak-erdat,
+         erzet  TYPE vbak-erzet,
+         ernam  TYPE vbak-ernam,
+         vkorg  TYPE vbak-vkorg,
+         vtweg  TYPE vbak-vtweg,
+         bstnk  TYPE vbak-bstnk,
+         kunnr  TYPE vbak-kunnr,
+         posnr  TYPE vbap-posnr,
+         matnr  TYPE vbap-matnr,
+         arktx  TYPE vbap-arktx,
+         pstyv  TYPE vbap-pstyv,
+         abgru  TYPE vbap-abgru,
+         netwr  TYPE vbap-netwr,
+         waerk  TYPE vbap-waerk,
+         kwmeng TYPE vbap-kwmeng,
+         vrkme  TYPE vbap-vrkme,
+         gbsta  TYPE vbup-gbsta,
+         name1  TYPE adrc-name1,
+       "  lifsk  TYPE vbak-lifsk,
+         vtext  TYPE tvlst-vtext,
+       END OF ty_vbak_2.
+
+TYPES: BEGIN OF ty_xls_line,
+         data(255) TYPE x,
+       END OF ty_xls_line.
+
+DATA: gt_result   TYPE TABLE OF ty_vbak,
+      gt_result_2 TYPE TABLE OF ty_vbak_2,
+      gt_xls_line TYPE TABLE OF ty_xls_line,
+      gt_verfauf  TYPE TABLE OF ty_vbak,
+      gs_result   TYPE ty_vbak,
+      go_lcl_zsd  TYPE REF TO lcl_zsd.
+
+
+*&---------------------------------------------------------------------*
+*&  Include           ZSD_OFFENE_AUFTRAEGE_SEL
+*&---------------------------------------------------------------------*
+
+
+SELECT-OPTIONS: so_vkorg FOR vbak-vkorg,
+                so_vtweg FOR vbak-vtweg,
+                so_kunnr FOR vbak-kunnr,
+                so_erdat FOR vbak-erdat.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.    "For drop-down window - EMail
+PARAMETERS p_email AS CHECKBOX USER-COMMAND p_email.
+SELECT-OPTIONS: so_email FOR somlreci1-receiver MODIF ID ib1 NO INTERVALS.
+PARAMETERS:     p_betr   TYPE sodocchgi1-obj_descr MODIF ID ib1 DEFAULT text-s01.   "[1]
+SELECTION-SCREEN END OF BLOCK b1.
+
+AT SELECTION-SCREEN OUTPUT.
+
+  LOOP AT SCREEN INTO DATA(wa_screen).              "Drop-down window for email
+    IF wa_screen-group1 = 'IB1' AND p_email = ' '.
+      wa_screen-active = '0'.
+      MODIFY SCREEN FROM wa_screen.
+    ENDIF.
+  ENDLOOP.
+
+
+*&---------------------------------------------------------------------*
+*&  Include           ZSD_OFFENE_AUFTRAEGE_CLC
+*&---------------------------------------------------------------------*
+*& Autor:       Nataliia Kunaeva
+*& Date:        29.10.2021
+*& Description: Class with methods - Select Partner-Role, ALV, Excel, Mail delivery
+*&---------------------------------------------------------------------*
+
+CLASS lcl_zsd DEFINITION.
+
+  PUBLIC SECTION.
+    METHODS select_data.
+    METHODS show_alv.
+    METHODS send_mail.
+    METHODS create_xls.
+
+ENDCLASS.                         " ende der DEFINITION lcl_zsd
+
+CLASS lcl_zsd IMPLEMENTATION.
+
+  " Link the four tables to find the Partner-Role with ZX
+  METHOD select_data.
+
+    SELECT vbak~vbeln, vbak~erdat, vbak~erzet, vbak~ernam, vbak~vkorg, vbak~vtweg, vbak~bstnk, vbak~kunnr,
+         vbap~posnr, vbap~matnr, vbap~arktx, vbap~pstyv, vbap~abgru, vbap~netwr, vbap~waerk, vbap~kwmeng, vbap~zmeng, vbap~vrkme,
+         vbup~gbsta,
+         adrc~name1,
+         vbak~lifsk
+         INTO TABLE @gt_result FROM vbak
+
+      INNER JOIN vbap  ON vbap~vbeln = vbak~vbeln
+      INNER JOIN vbup  ON vbap~vbeln = vbup~vbeln
+      LEFT  JOIN vbpa  ON vbpa~vbeln = vbak~vbeln AND vbpa~parvw = 'ZX'
+      LEFT  JOIN adrc  ON vbpa~adrnr = adrc~addrnumber
+
+        WHERE vbak~vkorg  IN @so_vkorg
+          AND vbak~vtweg  IN @so_vtweg
+          AND vbak~kunnr  IN @so_kunnr
+          AND vbak~erdat  IN @so_erdat
+          AND vbup~gbsta  NE 'C'.
+
+    IF sy-subrc <> 0.
+      MESSAGE i000(zsd_offene).    "No data found!
+    ENDIF.
+
+    LOOP AT gt_result INTO DATA(ls_result_2).     " Replacing empty kwmeng-field with filled zmeng-field
+      SELECT SINGLE vtext FROM tvlst INTO ls_result_2-vtext
+        WHERE lifsp = ls_result_2-lifsk AND spras = 'DE'.
+      IF ls_result_2-kwmeng EQ '0'.
+        ls_result_2-kwmeng = ls_result_2-zmeng.
+        MODIFY gt_result FROM ls_result_2.
+      ENDIF.
+      MODIFY gt_result FROM ls_result_2.
+    ENDLOOP.
+    CLEAR ls_result_2.
+
+    MOVE-CORRESPONDING gt_result TO gt_result_2.
+    DELETE gt_result_2 WHERE kwmeng = '0'.
+
+    DELETE ADJACENT DUPLICATES FROM gt_result_2.
+    SORT gt_result_2 BY vbeln ASCENDING.
+
+    DATA p_txt TYPE i.
+    LOOP AT gt_result_2 INTO DATA(ls_result).
+
+      FIND '@' IN ls_result-name1 MATCH OFFSET p_txt MATCH LENGTH DATA(v_len).
+      IF sy-subrc = 0.
+        p_txt = p_txt + 1.
+        ls_result-name1 = ls_result-name1+p_txt(6).
+
+        SELECT SINGLE 'X' FROM kna1 INTO @DATA(lv_x)
+          WHERE kunnr = @ls_result-name1.
+
+        IF sy-subrc = 0.
+          MODIFY gt_result_2 FROM ls_result.
+        ELSE.
+          CLEAR ls_result-name1.
+          MODIFY gt_result_2 FROM ls_result.
+        ENDIF.
+
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  " ALV
+  METHOD show_alv.
+
+    DATA: lo_alv             TYPE REF TO cl_salv_table,
+          lo_column          TYPE REF TO cl_salv_column,
+          lo_column2         TYPE REF TO cl_salv_column,
+          lo_columns         TYPE REF TO cl_salv_columns,
+          lo_display         TYPE REF TO cl_salv_display_settings,
+          lo_layout_settings TYPE REF TO cl_salv_layout,
+          lo_layout_key      TYPE salv_s_layout_key.
+
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table = lo_alv
+          CHANGING
+            t_table      = gt_result_2[] ).
+      CATCH cx_salv_msg.
+    ENDTRY.
+
+*    Change fields length and description
+    TRY.
+        lo_columns = lo_alv->get_columns( ).
+        lo_column = lo_columns->get_column( 'NAME1' ).
+        lo_column->set_long_text( text-001 ).
+        lo_column = lo_columns->get_column( columnname = 'VTEXT' ).
+        lo_column->set_long_text( value = text-002 ).
+        lo_column->set_medium_text( value = text-002 ).
+        lo_columns->set_optimize( 'X' ).
+
+        lo_column = lo_columns->get_column('GBSTA').             "gbsta is hided
+        lo_column->set_visible( if_salv_c_bool_sap=>false ).
+        lo_column = lo_columns->get_column('VKORG').             "vkorg is hided
+        lo_column->set_visible( if_salv_c_bool_sap=>false ).
+
+***<<<Ins Beg [2]
+        lo_column = lo_columns->get_column('NAME1').             "name1 is hided
+        lo_column->set_visible( if_salv_c_bool_sap=>false ).
+***>>>Ins End [2]
+
+      CATCH cx_salv_not_found.
+    ENDTRY.
+
+
+    lo_display = lo_alv->get_display_settings( ).
+    lo_display->set_striped_pattern( cl_salv_display_settings=>true ).
+    lo_layout_settings = lo_alv->get_layout( ).
+    lo_layout_key-report = sy-repid.
+    lo_layout_settings->set_key( lo_layout_key ).
+    lo_layout_settings->set_save_restriction( if_salv_c_layout=>restrict_none ).
+
+    DATA(lo_functions) = lo_alv->get_functions( ).
+    lo_functions->set_all( ).
+
+    lo_alv->display( ).
+
+  ENDMETHOD.
+
+
+  " Send information by e-mail.
+  METHOD send_mail.
+
+    CONSTANTS lc_vert TYPE so_recname VALUE 'FOKUSREPORT'.
+
+    DATA: lt_objpack   TYPE TABLE OF sopcklsti1,
+          ls_objpack   TYPE sopcklsti1,
+          lt_objhead   TYPE TABLE OF solisti1,
+          lt_objbin    TYPE TABLE OF solix,
+          ls_objbin    TYPE solix,
+          lt_reclist   TYPE TABLE OF somlreci1,
+          ls_reclist   TYPE somlreci1,
+          ls_doc_chng  TYPE sodocchgi1,
+          lv_tab_lines TYPE sy-tabix,
+          lv_subj_date TYPE char10.
+
+*   --Create and fill *xls file table-------------------------------------*
+
+    CALL METHOD go_lcl_zsd->create_xls( ).
+
+*    Mail Subject
+    "CONCATENATE sy-datum+6(2) '.' sy-datum+4(2) '.' sy-datum+0(4) INTO lv_subj_date.            "[1]-
+
+    ls_doc_chng-obj_descr = p_betr.                                                              "[1]
+    REPLACE ALL OCCURRENCES OF 'DD'   IN ls_doc_chng-obj_descr WITH sy-datum+6(2).               "[1]
+    REPLACE ALL OCCURRENCES OF 'MM'   IN ls_doc_chng-obj_descr WITH sy-datum+4(2).               "[1]
+    REPLACE ALL OCCURRENCES OF 'YYYY' IN ls_doc_chng-obj_descr WITH sy-datum+0(4).               "[1]
+
+    "CONCATENATE 'Offene Aufträge' lv_subj_date INTO ls_doc_chng-obj_descr SEPARATED BY space.   "[1]-
+
+*    Creation of the Document Attachment
+    LOOP AT gt_xls_line ASSIGNING FIELD-SYMBOL(<ls_xml>).
+      ls_objbin-line = <ls_xml>-data.
+      APPEND ls_objbin TO lt_objbin.
+    ENDLOOP.
+
+*    Describe the body of the message
+    IF gt_result_2 IS NOT INITIAL.
+*   Packing list for the e-mail body
+      ls_objpack-head_start = 1.
+      ls_objpack-head_num   = 0.
+      ls_objpack-body_start = 1.
+      ls_objpack-body_num   = 0.
+      ls_objpack-doc_type   = 'RAW'.
+      APPEND ls_objpack TO lt_objpack.
+
+      DESCRIBE TABLE lt_objbin LINES lv_tab_lines.
+*    Packing List For the E-mail Attachment
+      ls_objpack-transf_bin = 'X'.
+      ls_objpack-head_start = 1.
+      ls_objpack-head_num   = 0.
+      ls_objpack-body_start = 1.
+      ls_objpack-body_num   = lv_tab_lines.
+      ls_objpack-obj_descr  = ls_doc_chng-obj_descr.                                               "[1]
+      "CONCATENATE 'Offene Aufträge ' lv_subj_date INTO ls_objpack-obj_descr SEPARATED BY space.   "[1]-
+      ls_objpack-doc_type = 'XLS'.
+      ls_objpack-doc_size = lv_tab_lines * 255.
+      APPEND ls_objpack TO lt_objpack.
+    ELSE.
+*   Packing list for the e-mail body
+      ls_objpack-head_start = 1.
+      ls_objpack-head_num   = 0.
+      ls_objpack-body_start = 1.
+      ls_objpack-body_num   = 1.
+      ls_objpack-doc_type   = 'RAW'.
+      APPEND ls_objpack TO lt_objpack.
+
+      REFRESH lt_objbin.
+      DATA: lt_objtxt TYPE STANDARD TABLE OF solisti1.
+      DATA ls_objtxt TYPE solisti1.
+      ls_objtxt = 'Keine offene Aufträge gefunden'.
+      APPEND ls_objtxt TO lt_objtxt.
+      DESCRIBE TABLE lt_objtxt LINES ls_objpack-body_num.
+    ENDIF.
+
+    LOOP AT so_email ASSIGNING FIELD-SYMBOL(<ls_email>).
+*    Receivers
+      ls_reclist-rec_type   = 'U'.
+      ls_reclist-com_type   = 'INT'.
+      ls_reclist-receiver   =  <ls_email>-low.
+      ls_reclist-sap_body   = 'X'.
+      APPEND ls_reclist TO lt_reclist.
+    ENDLOOP.
+
+    CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
+      EXPORTING
+        document_data              = ls_doc_chng
+        put_in_outbox              = 'X'
+        commit_work                = 'X'
+      TABLES
+        packing_list               = lt_objpack
+        object_header              = lt_objhead
+        contents_txt               = lt_objtxt
+        contents_hex               = lt_objbin
+        receivers                  = lt_reclist
+      EXCEPTIONS
+        too_many_receivers         = 1
+        document_not_sent          = 2
+        operation_no_authorization = 4
+        OTHERS                     = 99.
+
+    IF sy-subrc = 0.
+*   Document sent
+      MESSAGE ID 'SO' TYPE 'S' NUMBER '022'.
+    ELSE.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+
+  ENDMETHOD.
+
+
+  METHOD create_xls.
+
+    DATA: lr_ixls          TYPE REF TO if_ixml,
+          lr_streamfactory TYPE REF TO if_ixml_stream_factory,
+          lr_ostream       TYPE REF TO if_ixml_ostream,
+          lr_renderer      TYPE REF TO if_ixml_renderer,
+          lr_document      TYPE REF TO if_ixml_document,
+          lr_element_root  TYPE REF TO if_ixml_element,
+          lr_attribute     TYPE REF TO if_ixml_attribute,
+          lr_element_prop  TYPE REF TO if_ixml_element,
+          lr_worksheet     TYPE REF TO if_ixml_element,
+          lr_table         TYPE REF TO if_ixml_element,
+          lr_column        TYPE REF TO if_ixml_element,
+          lr_row           TYPE REF TO if_ixml_element,
+          lr_cell          TYPE REF TO if_ixml_element,
+          lr_data          TYPE REF TO if_ixml_element,
+          lv_value         TYPE string,
+          lr_styles        TYPE REF TO if_ixml_element,
+          lr_style         TYPE REF TO if_ixml_element,
+          lr_style1        TYPE REF TO if_ixml_element,
+          lr_style2        TYPE REF TO if_ixml_element,
+          lr_style3        TYPE REF TO if_ixml_element,
+          lr_format        TYPE REF TO if_ixml_element,
+          lr_border        TYPE REF TO if_ixml_element,
+          lv_xml_size      TYPE i,
+          lv_rc            TYPE i,
+          lv_netwr(20)     TYPE c,
+          lv_kwmeng        TYPE i.
+
+* Creating a ixml Factory
+    lr_ixls = cl_ixml=>create( ).
+
+* Creating the DOM Object Model
+    lr_document = lr_ixls->create_document( ).
+
+* Create Root Node 'Workbook'
+    lr_element_root  = lr_document->create_simple_element( name = 'Workbook'  parent = lr_document ).
+    lr_element_root->set_attribute( name = 'xmlns'  value = 'urn:schemas-microsoft-com:office:spreadsheet' ).
+
+    lr_attribute = lr_document->create_namespace_decl( name = 'ss'  prefix = 'xmlns'  uri = 'urn:schemas-microsoft-com:office:spreadsheet' ).
+    lr_element_root->set_attribute_node( lr_attribute ).
+
+    lr_attribute = lr_document->create_namespace_decl( name = 'x'  prefix = 'xmlns'  uri = 'urn:schemas-microsoft-com:office:excel' ).
+    lr_element_root->set_attribute_node( lr_attribute ).
+
+* Create node for document properties.
+    lr_element_prop = lr_document->create_simple_element( name = 'Fokusreport_Zubehör'  parent = lr_element_root ).
+    lv_value = sy-uname.
+    lr_document->create_simple_element( name = 'Author'  value = lv_value  parent = lr_element_prop  ).
+
+* Styles
+    lr_styles = lr_document->create_simple_element( name = 'Styles'  parent = lr_element_root  ).
+
+* Style for Header
+    lr_style  = lr_document->create_simple_element( name = 'Style'   parent = lr_styles  ).
+    lr_style->set_attribute_ns( name = 'ID'  prefix = 'ss'  value = 'Header' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Font'  parent = lr_style  ).
+    lr_format->set_attribute_ns( name = 'Bold'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Interior' parent = lr_style  ).
+    lr_format->set_attribute_ns( name = 'Color'   prefix = 'ss'  value = '#9BC2E6' ).
+    lr_format->set_attribute_ns( name = 'Pattern' prefix = 'ss'  value = 'Solid' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Alignment'  parent = lr_style  ).
+    lr_format->set_attribute_ns( name = 'Vertical'  prefix = 'ss'  value = 'Center' ).
+    lr_format->set_attribute_ns( name = 'Horizontal'  prefix = 'ss'  value = 'Center' ).
+    lr_format->set_attribute_ns( name = 'WrapText'  prefix = 'ss'  value = '1' ).
+
+    lr_border  = lr_document->create_simple_element( name = 'Borders'  parent = lr_style ).
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Bottom' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Top' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Right' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+
+
+* Style for Data
+    lr_style1  = lr_document->create_simple_element( name = 'Style'   parent = lr_styles  ).
+    lr_style1->set_attribute_ns( name = 'ID'  prefix = 'ss'  value = 'Data' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Alignment'  parent = lr_style1  ).
+    lr_format->set_attribute_ns( name = 'Vertical'  prefix = 'ss'  value = 'Center' ).
+    lr_format->set_attribute_ns( name = 'Horizontal'  prefix = 'ss'  value = 'Right' ).
+
+    lr_border  = lr_document->create_simple_element( name = 'Borders'  parent = lr_style1 ).
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Bottom' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Top' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Right' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+* Additional Styles
+
+* Sales office
+    lr_style2  = lr_document->create_simple_element( name = 'Style'   parent = lr_styles  ).
+    lr_style2->set_attribute_ns( name = 'ID'  prefix = 'ss'  value = 'Verkaufsbüro' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Alignment'  parent = lr_style2  ).
+    lr_format->set_attribute_ns( name = 'Horizontal'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'WrapText'  prefix = 'ss'  value = '1' ).
+
+    lr_border  = lr_document->create_simple_element( name = 'Borders'  parent = lr_style2 ).
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Bottom' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Top' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Right' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+*
+* Name
+    lr_style3  = lr_document->create_simple_element( name = 'Style'   parent = lr_styles  ).
+    lr_style3->set_attribute_ns( name = 'ID'  prefix = 'ss'  value = 'Bezeich' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Alignment'  parent = lr_style3  ).
+    lr_format->set_attribute_ns( name = 'Horizontal'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'WrapText'  prefix = 'ss'  value = '1' ).
+
+    lr_border  = lr_document->create_simple_element( name = 'Borders'  parent = lr_style3 ).
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Bottom' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Left' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Top' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+    lr_format  = lr_document->create_simple_element( name = 'Border'   parent = lr_border  ).
+    lr_format->set_attribute_ns( name = 'Position'  prefix = 'ss'  value = 'Right' ).
+    lr_format->set_attribute_ns( name = 'LineStyle'  prefix = 'ss'  value = 'Continuous' ).
+    lr_format->set_attribute_ns( name = 'Weight'  prefix = 'ss'  value = '1' ).
+
+* Worksheet
+    lr_worksheet = lr_document->create_simple_element( name = 'Worksheet'  parent = lr_element_root ).
+    lr_worksheet->set_attribute_ns( name = 'Name'  prefix = 'ss'  value = 'Sheet1' ).
+
+* Table
+    lr_table = lr_document->create_simple_element( name = 'Table'  parent = lr_worksheet ).
+    lr_table->set_attribute_ns( name = 'FullColumns'  prefix = 'x'  value = '1' ).
+    lr_table->set_attribute_ns( name = 'FullRows'     prefix = 'x'  value = '1' ).
+
+* Column Formatting
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '160' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '210' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+
+***<<< Del Beg [2]
+*    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+*    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '80' ).
+***>>> Del End [2]
+
+    lr_column = lr_document->create_simple_element( name = 'Column'  parent = lr_table ).
+    lr_column->set_attribute_ns( name = 'Width'  prefix = 'ss'  value = '190' ).
+
+
+* Column Headers Row
+    lr_row = lr_document->create_simple_element( name = 'Row'  parent = lr_table ).
+    lr_row->set_attribute_ns( name = 'AutoFitHeight'  prefix = 'ss'  value = '1' ).
+
+*     Sales document (Verkaufsbeleg)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Verkaufsbeleg'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Date (Datum)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Datum'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Time (Uhrzeit)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Uhrzeit'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Created by
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Angelegt von'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Distribution channel (Vertriebsweg)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Vertriebsweg'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Order number (Bestellnummer)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Bestellnummer' parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Client (Auftraggeber)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Auftraggeber'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Position
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Position'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Material
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Material'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Name (Bezeichnung)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Bezeichnung'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Item category (Positionstyp)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Positionstyp'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Reason for cancellation (Absagegrund)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Absagegrund'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*     Net worth (Nettowert)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Nettowert'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*    Currency
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Währung'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*    Order quantity (Auftragsmenge)
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Auftragsmenge'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+*    Quantity
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'VerkME'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+***<<< Del Beg [2]
+*     Name1
+*    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+*    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+*    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Partner'  parent = lr_cell ).
+*    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+***>>> Del End [2]
+
+*     Liefersperre
+    lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+    lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Header' ).
+    lr_data = lr_document->create_simple_element( name = 'Data'  value = 'Liefersperre'  parent = lr_cell ).
+    lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss' value = 'String' ).
+
+
+
+* Data Table
+    LOOP AT gt_result_2 INTO DATA(ls_result).
+
+      lv_netwr  = ls_result-netwr.
+      lv_kwmeng = ls_result-kwmeng.
+
+      DATA(lv_erdat) = |{ ls_result-erdat DATE = ENVIRONMENT }|.
+      DATA(lv_erzet) = |{ ls_result-erzet TIME = ENVIRONMENT }|.
+
+      SHIFT ls_result-vbeln LEFT DELETING LEADING '0'.
+      SHIFT ls_result-posnr LEFT DELETING LEADING '0'.
+      SHIFT ls_result-matnr LEFT DELETING LEADING '0'.
+      SHIFT ls_result-bstnk LEFT DELETING LEADING '0'.
+      SHIFT ls_result-kunnr LEFT DELETING LEADING '0'.
+
+      PERFORM move_minus_sign CHANGING lv_netwr.
+      REPLACE '.' WITH ',' INTO lv_netwr.
+
+      lr_row = lr_document->create_simple_element( name = 'Row'  parent = lr_table ).
+
+*     Sales document (Verkaufsbeleg)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-vbeln.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Date (Datum)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = lv_erdat.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Time (Uhrzeit)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = lv_erzet.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     ernam field
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-ernam.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Distribution channel (Vertriebsweg)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-vtweg.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Order number (Bestellnummer)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-bstnk.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Client (Auftraggeber)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-kunnr.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Position
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-posnr.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Material
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-matnr.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Name (Bezeichnung)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-arktx.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Item category (Positionstyp)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-pstyv.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Reason for cancellation (Absagegrund)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-abgru.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Net worth (Nettowert)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = lv_netwr.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Currency
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-waerk.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Order quantity (Auftragsmenge)
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = lv_kwmeng.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+*     Quantity
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-vrkme.
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+***<<< Del Beg [2]
+*     Name1
+*      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+*      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+*      lv_value = ls_result-name1.
+*      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+*      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+***>>> Del End [2]
+
+*      Liefersperre
+      lr_cell = lr_document->create_simple_element( name = 'Cell'  parent = lr_row ).
+      lr_cell->set_attribute_ns( name = 'StyleID'  prefix = 'ss'  value = 'Data' ).
+      lv_value = ls_result-vtext .
+      lr_data = lr_document->create_simple_element( name = 'Data'  value = lv_value   parent = lr_cell ).
+      lr_data->set_attribute_ns( name = 'Type'  prefix = 'ss'  value = 'String' ).
+
+    ENDLOOP.
+
+* Creating a Stream Factory
+    lr_streamfactory = lr_ixls->create_stream_factory( ).
+
+* Connect Internal XML Table to Stream Factory
+    lr_ostream = lr_streamfactory->create_ostream_itable( table = gt_xls_line ).
+
+* Rendering the Document
+    lr_renderer = lr_ixls->create_renderer( ostream  = lr_ostream  document = lr_document ).
+    lv_rc = lr_renderer->render( ).
+
+* Saving the XML Document
+    lv_xml_size = lr_ostream->get_num_written_raw( ).
+
+  ENDMETHOD.
+
+
+ENDCLASS.
+
+
+FORM move_minus_sign  CHANGING p_amount.
+
+  DATA p_int TYPE i.
+  MOVE p_amount TO p_int.
+
+* check if negative amount
+  IF p_int LT 0.
+    SHIFT p_amount RIGHT DELETING TRAILING '-'.
+    SHIFT p_amount LEFT DELETING LEADING ' '.
+    CONCATENATE '-' p_amount INTO p_amount.
+  ELSE.
+    SHIFT p_amount LEFT DELETING LEADING ' '.
+  ENDIF.
+ENDFORM.                    " move_minus_sign
