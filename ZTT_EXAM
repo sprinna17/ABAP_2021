@@ -1,0 +1,363 @@
+*&---------------------------------------------------------------------*
+*& Report ZTT_EXAM
+*&---------------------------------------------------------------------*
+*& Author: Natalia Kunaeva
+*& Date: 28.07.2021
+*& Description: Exam-program with selection from VBAK table.
+*&
+*& Change history
+*& Author:
+*& Date: 29.07.2021
+*&---------------------------------------------------------------------*
+REPORT ztt_exam.
+
+TABLES: vbap, makt, t023t, t179t.
+
+SELECTION-SCREEN BEGIN OF BLOCK part1 WITH FRAME TITLE title.
+  SELECT-OPTIONS so_vbeln FOR vbap-vbeln.   " Select Sales Document from VBAP table
+  PARAMETERS: p_erdat  TYPE vbap-erdat.     " Date on Which Record Was Created
+SELECTION-SCREEN END OF BLOCK part1.
+
+INCLUDE ztt_exam_data.          " data declaration
+INCLUDE ztt_exam_class.         " description 2 methods
+INCLUDE ztt_exam_module.        " PAI & PBO modules
+
+AT SELECTION-SCREEN.
+  LOOP AT SCREEN.
+   p_erdat = '19950810'. " vbap-erdat
+      MODIFY SCREEN.
+  ENDLOOP.
+
+INITIALIZATION.
+title = 'Selecting data for sale documents - Table VBAP'(001).
+START-OF-SELECTION.
+
+  CREATE OBJECT go_lcl_ztt_exam.    " object for ref class lcl_ztt_exam
+
+  CALL METHOD go_lcl_ztt_exam->select_sales_doc( ).     " select for 1st container on screen 0100
+
+  END-OF-SELECTION.
+
+  CALL SCREEN 100.
+
+
+*----------------------------------------------------------------------------------
+*&---------------------------------------------------------------------*
+*&  Include           ZTT_EXAM_DATA
+*&---------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 28.07.2021
+*& Description: Types & Data declaration for ZTT_EXAM program.
+*&---------------------------------------------------------------------*
+
+
+CLASS lcl_ztt_exam DEFINITION DEFERRED.
+*CLASS lcl_ztest_trainee_3 DEFINITION DEFERRED.
+
+
+*DATA: wa_vbak TYPE vbap.
+DATA: gt_vbap      TYPE STANDARD TABLE OF vbap,
+      gt_vbap_copy TYPE STANDARD TABLE OF vbap.
+
+DATA: gv_cont1     TYPE scrfname VALUE 'CONT1',
+      gv_cont2     TYPE scrfname VALUE 'CONT2',
+      go_grid         TYPE REF TO cl_gui_alv_grid,
+      go_cust_cont1   TYPE REF TO cl_gui_custom_container,
+      go_cust_cont2   TYPE REF TO cl_gui_custom_container,
+      go_lcl_ztt_exam TYPE REF TO lcl_ztt_exam,
+      ok_code      TYPE sy-ucomm,
+      ok_code_2    TYPE sy-ucomm,
+      cbox_1(1)    TYPE c,
+      cbox_2(1)    TYPE c,
+      cbox_3(1)    TYPE c,
+      cbox_4(1)    TYPE c,
+      cbox_5(1)    TYPE c.
+
+*---------------data declaretion for 2nd display on screen 0200-----------------------------------------------------*
+  TYPES: BEGIN OF gtt_all_tab,
+          matnr   TYPE vbap-matnr,
+          maktx   TYPE makt-maktx,
+          matkl   TYPE vbap-matkl,
+          wgbez60 TYPE t023t-wgbez60,
+          prodh   TYPE vbap-prodh,
+*         spras TYPE t023t-spras,
+          vtext   TYPE t179t-vtext,
+         END OF gtt_all_tab.
+
+  DATA: "ls_all_tab TYPE gtt_all_tab,
+        gt_all_tab TYPE TABLE OF gtt_all_tab.
+
+  DATA go_alv TYPE REF TO cl_salv_table.
+*--------------------------------------------------------------------*
+
+  DATA posnr TYPE n LENGTH 6.
+
+
+
+*&---------------------------------------------------------------------*
+*&  Include           ZTT_EXAM_CLASS
+*&---------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 28.07.2021
+*& Description: Local class with methods for ZTT_EXAM program.
+*&---------------------------------------------------------------------*
+
+CLASS lcl_ztt_exam DEFINITION.
+
+   PUBLIC SECTION.
+    METHODS select_sales_doc.
+    METHODS select_diff_data.
+
+
+ENDCLASS.                         " end of DEFINITION lcl_ztt_exam
+
+CLASS lcl_ztt_exam IMPLEMENTATION.
+
+  " select Sales Document from VBAP table
+  METHOD select_sales_doc.
+
+    SELECT * FROM  vbap
+      INTO TABLE gt_vbap UP TO 100 ROWS
+      WHERE vbeln IN so_vbeln.
+
+    gt_vbap_copy = gt_vbap.
+
+    IF sy-subrc <> 0.
+      MESSAGE i000(ztt_msg_exam). " 'No data found!'.
+       LEAVE LIST-PROCESSING.
+    ENDIF.
+
+  ENDMETHOD.
+
+
+  " select different fields from different tables
+  METHOD select_diff_data.
+
+     SELECT vbap~matnr, vbap~matkl, vbap~prodh,
+            makt~maktx,
+            t023t~wgbez60,
+            t179t~vtext
+       INTO TABLE @gt_all_tab UP TO 200 ROWS
+       FROM vbap
+       LEFT JOIN makt  ON makt~matnr  = vbap~matnr AND
+                          makt~spras  = @sy-langu
+
+       LEFT JOIN t023t ON t023t~matkl = vbap~matkl AND
+                          t023t~spras = @sy-langu
+
+       LEFT JOIN t179t ON t179t~prodh = vbap~prodh AND
+                          t179t~spras = @sy-langu.
+
+       IF sy-subrc <> 0.
+        MESSAGE i000(ztt_msg_exam). " 'No data found!'.
+         LEAVE LIST-PROCESSING.
+      ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+*&---------------------------------------------------------------------*
+*&  Include           ZTT_EXAM_MODULE
+*&---------------------------------------------------------------------*
+*& Author: Nataliia Kunaeva
+*& Date: 28.07.2021
+*& Description: PAI & PBO modules for ZTT_EXAM program.
+*&---------------------------------------------------------------------*
+
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+
+  SET PF-STATUS 'STATUS_100'.
+  SET TITLEBAR 'TITLE_100'.
+
+  IF go_cust_cont1 IS NOT BOUND.
+
+    CREATE OBJECT go_cust_cont1
+    EXPORTING container_name = gv_cont1.
+
+    CREATE OBJECT go_grid
+      EXPORTING i_parent = go_cust_cont1.
+
+    CALL METHOD go_grid->set_table_for_first_display
+       EXPORTING
+        i_structure_name              = 'VBAP'
+      CHANGING
+        it_outtab                     = gt_vbap.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                 WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+*    CREATE OBJECT v_event_reciever.
+*    SET HANDLER v_event_reciever->handle_double_click FOR v_grid1.
+
+  ENDIF.
+
+" Are there special Items (10,20,30,40,50) for Sales Document
+  LOOP AT gt_vbap INTO DATA(ls_vbap).
+    IF ls_vbap-posnr = '10'.
+      cbox_1 = 'X'.
+    ENDIF.
+    IF ls_vbap-posnr = '20'.
+      cbox_2 = 'X'.
+    ENDIF.
+    IF ls_vbap-posnr = '30'.
+      cbox_3 = 'X'.
+    ENDIF.
+    IF ls_vbap-posnr = '40'.
+      cbox_4 = 'X'.
+*    ELSE.
+*      MESSAGE 'There are not Items with №40' TYPE 'S' DISPLAY LIKE 'E'.
+    ENDIF.
+    IF ls_vbap-posnr = '50'.
+      cbox_5 = 'X'.
+*    ELSE.
+*      MESSAGE 'There are not Items with №50' TYPE 'S' DISPLAY LIKE 'E'.
+    ENDIF.
+    IF sy-subrc <> 0.
+        MESSAGE 'nothing' TYPE 'S' DISPLAY LIKE 'E'.
+    ENDIF.
+  ENDLOOP.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  CASE ok_code.
+    WHEN 'BACK'.
+      LEAVE TO SCREEN 0.
+    WHEN 'EXIT'.
+      LEAVE TO SCREEN 0.
+    WHEN 'CANCEL'.
+      LEAVE TO SCREEN 0.
+    WHEN 'BTN_EXIT'.
+      LEAVE TO SCREEN 0.
+    WHEN 'SHOWDATA'.
+      CALL SCREEN 0200.
+    WHEN 'BTN_SHOW'.
+      CALL SCREEN 0200.
+    WHEN 'CBOX_1'.
+      IF cbox_1 = 'X'.
+          LOOP AT gt_vbap_copy INTO DATA(ls_vbap_copy).
+              IF ls_vbap_copy-posnr = '10'.
+                APPEND ls_vbap_copy TO gt_vbap.
+              ENDIF.
+          ENDLOOP.
+        CALL METHOD go_grid->refresh_table_display.
+      ELSE.
+        DELETE gt_vbap WHERE posnr = '10'.
+        CALL METHOD go_grid->refresh_table_display.
+      ENDIF.
+    WHEN 'CBOX_2'.
+      IF cbox_2 = 'X'.
+          LOOP AT gt_vbap_copy INTO ls_vbap_copy.
+              IF ls_vbap_copy-posnr = '20'.
+                APPEND ls_vbap_copy TO gt_vbap.
+              ENDIF.
+          ENDLOOP.
+        CALL METHOD go_grid->refresh_table_display.
+      ELSE.
+        DELETE gt_vbap WHERE posnr = '20'.
+        CALL METHOD go_grid->refresh_table_display.
+      ENDIF.
+    WHEN 'CBOX_3'.
+      IF cbox_3 = 'X'.
+          LOOP AT gt_vbap_copy INTO ls_vbap_copy.
+              IF ls_vbap_copy-posnr = '30'.
+                APPEND ls_vbap_copy TO gt_vbap.
+              ENDIF.
+          ENDLOOP.
+        CALL METHOD go_grid->refresh_table_display.
+      ELSE.
+        DELETE gt_vbap WHERE posnr = '30'.
+        CALL METHOD go_grid->refresh_table_display.
+      ENDIF.
+    WHEN 'CBOX_4'.
+      IF cbox_4 = 'X'.
+          LOOP AT gt_vbap_copy INTO ls_vbap_copy.
+              IF ls_vbap_copy-posnr = '40'.
+                APPEND ls_vbap_copy TO gt_vbap.
+              ENDIF.
+          ENDLOOP.
+        CALL METHOD go_grid->refresh_table_display.
+      ELSE.
+        DELETE gt_vbap WHERE posnr = '40'.
+        CALL METHOD go_grid->refresh_table_display.
+      ENDIF.
+    WHEN 'CBOX_5'.
+      IF cbox_5 = 'X'.
+          LOOP AT gt_vbap_copy INTO ls_vbap_copy.
+              IF ls_vbap_copy-posnr = '50'.
+                APPEND ls_vbap_copy TO gt_vbap.
+              ENDIF.
+          ENDLOOP.
+        CALL METHOD go_grid->refresh_table_display.
+      ELSE.
+        DELETE gt_vbap WHERE posnr = '50'.
+        CALL METHOD go_grid->refresh_table_display.
+      ENDIF.
+    WHEN OTHERS.
+      LEAVE TO SCREEN 0.
+   ENDCASE.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0200  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0200 OUTPUT.
+
+  SET PF-STATUS 'STATUS_200'.
+  SET TITLEBAR 'TITLE_200'.
+
+  CALL METHOD go_lcl_ztt_exam->select_diff_data( ).     " select for the 2nd container on screen 0200
+
+  IF go_cust_cont2 IS NOT BOUND.
+
+    CREATE OBJECT go_cust_cont2 EXPORTING container_name = gv_cont2.
+
+    cl_salv_table=>factory(                             " class for display data on the 2nd screen 0200
+      EXPORTING
+        list_display = if_salv_c_bool_sap=>false
+      IMPORTING
+        r_salv_table = go_alv
+      CHANGING
+        t_table      = gt_all_tab ).
+
+    go_alv->display( ).
+
+    ENDIF.
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0200  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0200 INPUT.
+
+  CASE ok_code_2.
+    WHEN 'BACK'.
+      LEAVE TO SCREEN 0.
+    WHEN 'EXIT'.
+      LEAVE TO SCREEN 0.
+    WHEN 'CANCEL'.
+      LEAVE TO SCREEN 0.
+    WHEN OTHERS.
+      LEAVE TO SCREEN 0.
+   ENDCASE.
+
+ENDMODULE.
