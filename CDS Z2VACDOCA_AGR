@@ -1,0 +1,81 @@
+@AbapCatalog.sqlViewName: 'Z2VACDOCA_AGR2'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Vista con SET_CUENTAS y SET_CECOS'
+@VDM.viewType: #COMPOSITE
+@ClientHandling.algorithm: #SESSION_VARIABLE
+@AbapCatalog.buffering.status: #NOT_ALLOWED
+@Metadata.allowExtensions: true
+@Metadata.ignorePropagatedAnnotations: true
+@Analytics: { dataCategory: #CUBE }
+@ObjectModel.usageType.sizeCategory: #XL
+@ObjectModel.usageType.serviceQuality: #D
+@ObjectModel.usageType.dataClass: #MIXED
+
+define view Z2VACDOCA_AGR as select from acdoca as _a
+  inner join bkpf as _b on 
+    _a.rclnt = _b.mandt and
+    _a.rbukrs = _b.bukrs and
+    _a.belnr  = _b.belnr and 
+    _a.gjahr  = _b.gjahr
+
+  // Join для SET_CUENTAS (field RACCT)
+  left outer join ZSETLEAF as _zset_cuentas on 
+    _a.racct between _zset_cuentas.valfrom and _zset_cuentas.valto
+
+  // Join для SET_CECOS (field RCENTR)
+  left outer join ZSETLEAF as _zset_cecos on 
+    _a.rcntr between _zset_cecos.valfrom and _zset_cecos.valto
+        
+{
+  _a.rldnr,
+  _a.gjahr,
+  _a.racct,
+  _a.rcntr,
+  _a.rbusa,
+  _a.kokrs,
+  @Semantics.currencyCode
+  _a.rtcur,
+  @Semantics.amount.currencyCode: '_a.rtcur'
+  @DefaultAggregation: #SUM
+  sum(_a.tsl) as TSL,
+  @Semantics.amount.currencyCode: '_a.rtcur'
+  @DefaultAggregation: #SUM
+  sum(_a.wsl) as WSL,
+  @Semantics.amount.currencyCode: '_a.rtcur'
+  @DefaultAggregation: #SUM
+  sum(_a.hsl) as Importe_SO,
+  _a.drcrk,
+  _a.poper,
+  _a.fiscyearper,
+  _a.budat,
+  _a.bldat,
+  _a.ktopl,
+  _b.xblnr,
+  _a.zzgar,
+
+  // field SET_CUENTAS must show setname for RACCT
+  _zset_cuentas.setname as grupo_de_cuenta,
+
+  // field SET_CECOS must show setname for RCENTR
+  _zset_cecos.setname as grupo_de_coste
+}
+group by
+  _a.rldnr,
+  _a.gjahr,
+  _a.racct,
+  _a.rcntr,
+  _a.rbusa,
+  _a.kokrs,
+  _a.rtcur,
+  _a.drcrk,
+  _a.poper,
+  _a.fiscyearper,
+  _a.budat,
+  _a.bldat,
+  _a.ktopl,
+  _b.xblnr,
+  _a.zzgar,
+  _zset_cuentas.setname,
+  _zset_cecos.setname
